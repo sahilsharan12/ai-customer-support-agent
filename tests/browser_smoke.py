@@ -8,7 +8,7 @@ import sys
 from contextlib import contextmanager
 from pathlib import Path
 from secrets import token_urlsafe
-from tempfile import TemporaryDirectory
+from tempfile import TemporaryDirectory, TemporaryFile
 from time import sleep
 from urllib.error import URLError
 from urllib.request import urlopen
@@ -27,11 +27,15 @@ def dashboard_server(environment):
         port = listener.getsockname()[1]
     base = f"http://127.0.0.1:{port}"
     command = [sys.executable, "-m", "uvicorn", "backend.main:app", "--host", "127.0.0.1", "--port", str(port)]
-    with subprocess.Popen(command, env=environment, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True) as server:
+    with (
+        TemporaryFile(mode="w+", encoding="utf-8") as log,
+        subprocess.Popen(command, env=environment, stdout=log, stderr=subprocess.STDOUT) as server,
+    ):
         try:
             for _ in range(100):
                 if server.poll() is not None:
-                    raise RuntimeError(server.stdout.read())
+                    log.seek(0)
+                    raise RuntimeError(log.read())
                 try:
                     with urlopen(base + "/health", timeout=1):
                         break

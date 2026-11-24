@@ -77,6 +77,30 @@ To evaluate the installed intent classifier, run `python -m nlp.evaluate_intents
 
 To use Chroma vector search, install the separate `nomic-embed-text` Ollama model, run `python -m rag.ingest`, and set `POLICY_RETRIEVAL=vector`. Use the default `local` mode for lower memory use.
 
+## Agent controls and evaluation
+
+LangGraph runs separate routing, retrieval, model, and tool nodes. The tool loop is bounded to three execution rounds and six calls. The Ollama client retries an eligible transient failure once. The project keeps `qwen3:1.7b` and lightweight local policy retrieval as its defaults.
+
+| Customer request | Handling |
+|---|---|
+| Verify an order | Scoped read-only tools. Chat formats order results from the database. |
+| Ask about a policy | A relevant passage with its source filename. Missing or unavailable evidence opens a staff case. |
+| Start a return | The workflow validates eligibility and asks the customer to confirm the saved draft. |
+| Request a refund | Opens a refund review case. Staff use the existing return and refund workflow for any financial decision. |
+| Cancel an order | Verifies the order and saves a short-lived draft. Confirmation rechecks eligibility and creates a staff case. |
+| Change sensitive account data | Sends the request to admin review. Staff need a verified support process for the actual change. |
+| Uncertain answer or unavailable model | Opens a staff case and returns a reference. |
+
+In Swagger, customers can check `GET /customers/me/support-cases`. Staff can review queues with `GET /staff/support-cases`. The decision endpoint uses `POST /staff/support-cases/{case_id}/decision`. A support agent can decide low-confidence cases. An admin handles protected cases. Decisions record the reviewer and timestamp. Cancellation and account changes remain review requests with the current historical data source.
+
+The chat path masks common credential and personal-data patterns before saving messages or sending them to Ollama. It validates tool arguments against the route's allowlist and filters private fields out of tool results. A heuristic detector blocks common instruction overrides. Treat it as one layer of protection when working with real customer data.
+
+Run `python -m evaluation.evaluate_policy` to check citations, expected facts, extractive faithfulness, and abstention against the checked-in policy examples. Run `python -m nlp.evaluate_intents` against the local held-out classifier split. These checks report their dataset sizes so the results can be interpreted in context.
+
+The local intent evaluation measured **98.85% accuracy** and **98.74% macro F1** on **3,642** held-out examples. The policy benchmark passed **six evidence-and-citation cases** and **one abstention case**. The policy benchmark measures the project's extractive answers on a small set of examples.
+
+Admins can see assistant metrics at `/admin/metrics`. Counters include tool attempts and successes, model retries and errors, observed token usage, response latency, policy hits, and escalation rate. `SUPPORT_OTEL_CONSOLE=true` enables local OpenTelemetry spans in the server console. Spans contain workflow and status information without prompts, personal identifiers, or credentials.
+
 ## Container and deployment
 
 `docker compose up --build` builds and starts the API using the signing secret from `.env`, a persistent volume for support data, and the existing order database mounted read-only. Run Ollama on the host and make it reachable at `host.docker.internal:11434` from Docker. Provision staff inside the container using `docker compose exec support python -m backend.provision_staff_user`.
@@ -86,3 +110,4 @@ To use Chroma vector search, install the separate `nomic-embed-text` Ollama mode
 - The supplied container uses one API process with SQLite and in-process rate limits. Before an internet-facing deployment, configure TLS, persistent backups, and shared rate limiting at the gateway if using multiple API instances.
 - GitHub Actions is configured for a clean Python installation, API tests, JavaScript syntax validation, and a container build. Run it by pushing to your chosen GitHub repository.
 - Live refunds require payment-provider credentials and a verified mapping from orders to original payments.
+- The [AWS deployment checklist](docs/aws-deployment.md) covers provisioning and verification once an AWS account, region, and hosting budget are selected.

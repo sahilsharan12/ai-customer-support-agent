@@ -366,7 +366,7 @@ async function sendChat(message) {
     const result = await api("/chat", { method: "POST", data: payload });
     if (version !== state.chatVersion) return;
     state.conversation = result.conversation_id;
-    state.messages.push({ text: message, user: true }, { text: result.assistant_response, sources: result.policy_sources });
+    state.messages.push({ text: result.customer_message, user: true }, { text: result.assistant_response, sources: result.policy_sources });
   } finally {
     if (state.sending === submission) state.sending = null;
   }

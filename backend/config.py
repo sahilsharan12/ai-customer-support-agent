@@ -20,3 +20,4 @@ OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen3:1.7b")
 OLLAMA_EMBEDDING_MODEL = os.getenv("OLLAMA_EMBEDDING_MODEL", "nomic-embed-text")
 POLICY_RETRIEVAL = os.getenv("POLICY_RETRIEVAL", "local").strip().lower()
 DEMO_REFUNDS_ENABLED = os.getenv("DEMO_REFUNDS_ENABLED", "false").strip().lower() == "true"
+SUPPORT_OTEL_CONSOLE = os.getenv("SUPPORT_OTEL_CONSOLE", "false").strip().lower() == "true"

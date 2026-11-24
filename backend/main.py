@@ -32,8 +32,10 @@ from pydantic import (
 )
 
 from backend.agent import answer_chat
+from backend import support_cases
 from backend.config import DEMO_REFUNDS_ENABLED, OLLAMA_BASE_URL, OLLAMA_MODEL, PROJECT_ROOT
-from backend.observability import observe_request, request_metrics
+from backend.guardrails import mask_text, mask_tool_data
+from backend.observability import assistant_metrics, configure_tracing, observe_request, request_metrics
 
 from backend.memory import (
     create_conversation,
@@ -152,9 +154,11 @@ def customer_owns(user: dict, customer_id: Optional[str]) -> bool:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     signing_key()
+    configure_tracing()
     initialize_database()
     initialize_auth_database()
     initialize_memory_database()
+    support_cases.initialize_database()
 
     logger.info("Application databases initialized.")
 
@@ -661,6 +665,11 @@ class ChatResponse(BaseModel):
 
     assistant_response: str
     policy_sources: list[str] = Field(default_factory=list)
+    support_case: dict | None = None
+
+
+class SupportCaseDecision(BaseModel):
+    decision: Literal["APPROVED", "REJECTED"]
 
 
 class ReturnCreatedResponse(BaseModel):
@@ -764,7 +773,41 @@ def support_analytics(user: dict = Depends(require_roles(*STAFF_ROLES))):
 
 @app.get("/admin/metrics", tags=["Audit"])
 def admin_metrics(user: dict = Depends(require_roles(ROLE_ADMIN))):
-    return {"requests": request_metrics()}
+    return {"requests": request_metrics(), "assistant": assistant_metrics()}
+
+
+@app.get("/customers/me/support-cases", tags=["Conversations"])
+def my_support_cases(
+    limit: int = Query(30, ge=1, le=100),
+    user: dict = Depends(require_roles(ROLE_CUSTOMER)),
+):
+    return {"cases": support_cases.customer_cases(user["user_id"], limit)}
+
+
+@app.get("/staff/support-cases", tags=["Audit"])
+def review_queue(
+    status: Literal["PENDING", "APPROVED", "REJECTED"] = "PENDING",
+    limit: int = Query(30, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    user: dict = Depends(require_roles(*STAFF_ROLES)),
+):
+    return {"cases": support_cases.staff_cases(limit, offset, status)}
+
+
+@app.post("/staff/support-cases/{case_id}/decision", tags=["Audit"])
+def decide_support_case(
+    decision: SupportCaseDecision,
+    case_id: str = id_path(),
+    user: dict = Depends(require_roles(*STAFF_ROLES)),
+):
+    case, error = support_cases.decide_case(case_id, decision.decision, user)
+    if error == "not_found":
+        raise HTTPException(404, "Support case not found.")
+    if error == "forbidden":
+        raise HTTPException(403, "This case requires an admin.")
+    if error == "decided":
+        raise HTTPException(409, "This case already has a decision.")
+    return case
 
 
 @app.get("/customers/me/preferences", tags=["Conversations"])
@@ -921,7 +964,8 @@ def chat(
 
         # Step 1: Intent classification
 
-        intent_result = predict_intent(request.message)
+        masked_message = mask_text(request.message)
+        intent_result = predict_intent(masked_message)
 
         predicted_intent = intent_result["intent"]
 
@@ -934,7 +978,7 @@ def chat(
         add_message(
             conversation_id,
             "user",
-            request.message
+            masked_message
         )
 
         # Step 3: Retrieve conversation history
@@ -942,12 +986,6 @@ def chat(
         history = get_recent_history(
             conversation_id,
             limit=10
-        )
-
-        # Step 4: Retrieve customer memory
-
-        customer_memory = get_customer_memory(
-            conversation_id
         )
 
         # Step 5: Add intent context
@@ -968,29 +1006,10 @@ def chat(
 
         history.insert(0, intent_context)
 
-        # Step 6: Add customer memory context
-
-        if customer_memory:
-
-            memory_context = {
-                "role": "system",
-                "content": (
-                    "Known customer information:\n"
-                    + "\n".join(
-                        f"{key}: {value}"
-                        for key, value in customer_memory.items()
-                    )
-                    + "\nUse this information when relevant. "
-                    "Do not claim that an order or transaction "
-                    "has been verified unless a real tool confirms it."
-                )
-            }
-
-            history.insert(0, memory_context)
-
         # Step 7: Generate response
 
-        answer, policy_sources = answer_chat(history, user, conversation_id, predicted_intent)
+        result = answer_chat(history, user, conversation_id, predicted_intent, intent_confidence)
+        answer = mask_text(result["answer"])
 
         # Step 8: Save assistant response
 
@@ -1005,12 +1024,13 @@ def chat(
         return ChatResponse(
             status="success",
             conversation_id=conversation_id,
-            customer_message=request.message,
+            customer_message=masked_message,
             predicted_intent=predicted_intent,
             intent_confidence=intent_confidence,
             top_predictions=top_predictions,
             assistant_response=answer,
-            policy_sources=policy_sources,
+            policy_sources=result.get("sources", []),
+            support_case=result.get("case"),
         )
 
     except HTTPException:
@@ -1114,7 +1134,7 @@ def conversation_details(
         "total_messages": total_messages,
         "limit": limit,
         "offset": offset,
-        "messages": history
+        "messages": mask_tool_data(history)
     }
 
 @app.get(
@@ -1143,7 +1163,7 @@ def customer_memory_details(
 
     return {
         "conversation_id": conversation_id,
-        "customer_memory": customer_memory
+        "customer_memory": mask_tool_data(customer_memory)
     }
 
 # ==========================================

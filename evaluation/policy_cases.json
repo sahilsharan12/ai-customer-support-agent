@@ -1,0 +1,9 @@
+[
+  {"question": "How many calendar days do I have to return an item?", "source": "return_policy.md", "fact": "7 calendar days"},
+  {"question": "Which products are non-returnable, such as personalized items?", "source": "return_policy.md", "fact": "Personalized products"},
+  {"question": "What is the refund payment method?", "source": "refund_policy.md", "fact": "original payment method"},
+  {"question": "Which rules apply to partial refunds and shipping charges?", "source": "refund_policy.md", "fact": "Partial refunds may apply"},
+  {"question": "What is the estimated delivery policy?", "source": "shipping_policy.md", "fact": "Estimated delivery dates"},
+  {"question": "What happens when delivery is unsuccessful?", "source": "shipping_policy.md", "fact": "contact support"},
+  {"question": "What is your refund policy for a lunar mining lease?", "source": null, "fact": null}
+]

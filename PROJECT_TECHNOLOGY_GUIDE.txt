@@ -227,11 +227,14 @@ Docker and Docker Compose
 
 8. What is verified and what remains
 -------------------------------------
-The local verification run passed 25 automated tests, the Edge dashboard
-smoke test, and a live Qwen return confirmation. The intent classifier
+The verification suite covers API roles, tool permissions, privacy masking,
+return confirmation, refund review, cancellation, and escalation. An Edge
+smoke test and a live Qwen return check are also available. The intent classifier
 achieved 98.85% accuracy and 98.74% macro F1 on 3,642 held-out examples from
 the supplied dataset. These scores measure intent classification on that
-split. Real customer messages and Qwen replies need their own evaluation.
+split. The checked-in policy evaluation checks evidence and citations on a
+separate, small set of project scenarios. Real customer messages and Qwen
+replies need their own evaluation.
 
 The Docker and GitHub Actions files are configured. Container execution,
 GitHub CI execution, cloud deployment, and live payments remain separate

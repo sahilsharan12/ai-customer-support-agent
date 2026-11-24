@@ -62,6 +62,13 @@ def retrieve_local_policy(query: str, top_k: int):
     if index is None:
         return []
     sections, vectorizer, vectors = index
+    broad_terms = {"return", "returns", "refund", "refunds", "policy", "shipping", "delivery", "order"}
+    specific_terms = {
+        word for word in vectorizer.build_analyzer()(query)
+        if " " not in word and word not in broad_terms
+    }
+    if len(specific_terms) >= 2 and specific_terms.isdisjoint(vectorizer.vocabulary_):
+        return []
     scores = (vectors @ vectorizer.transform([query]).T).toarray().ravel()
     matches = sorted(range(len(scores)), key=lambda idx: scores[idx], reverse=True)
     return [
