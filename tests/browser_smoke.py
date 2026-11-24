@@ -63,11 +63,14 @@ def verify(channel, screenshot=None):
             "DEMO_REFUNDS_ENABLED": "false",
         }
         admin_password = token_urlsafe(24)
+        staff_password = token_urlsafe(24)
         with patch.object(auth, "DB_PATH", root / "support" / "users.db"):
             auth.initialize_auth_database()
             admin = auth.register_user("browser-admin@example.test", admin_password)
+            staff = auth.register_user("browser-staff@example.test", staff_password)
             with auth.get_auth_connection() as connection:
                 connection.execute("UPDATE users SET role = 'admin' WHERE user_id = ?", (admin["user_id"],))
+                connection.execute("UPDATE users SET role = 'support_agent' WHERE user_id = ?", (staff["user_id"],))
 
         with dashboard_server(environment) as server, sync_playwright() as playwright:
             browser = playwright.chromium.launch(
@@ -80,7 +83,12 @@ def verify(channel, screenshot=None):
                 errors = []
                 page.on("pageerror", lambda error: errors.append(str(error)))
                 page.goto(server + "/dashboard")
-                register = page.locator("section.panel").filter(has=page.get_by_role("heading", name="New customer"))
+                expect(page.get_by_role("heading", name="Sign in", exact=True)).to_be_visible()
+                expect(page.get_by_role("textbox", name="Email")).to_have_count(1)
+                expect(page.get_by_role("navigation", name="Workspace")).to_be_hidden()
+                page.get_by_role("button", name="Create customer account").click()
+                expect(page.get_by_role("heading", name="Create a customer account")).to_be_visible()
+                register = page.locator("#auth-panel")
                 email = "browser-customer@example.test"
                 password = token_urlsafe(24)
                 register.get_by_label("Email").fill(email)
@@ -91,13 +99,16 @@ def verify(channel, screenshot=None):
 
                 def sign_in(user_email, user_password):
                     page.get_by_role("button", name="Sign out").click()
-                    login = page.locator("section.panel").filter(has=page.get_by_role("heading", name="Sign in", exact=True))
+                    login = page.locator("#auth-panel")
+                    expect(login.get_by_role("heading", name="Sign in", exact=True)).to_be_visible()
                     login.get_by_label("Email").fill(user_email)
                     login.get_by_label("Password").fill(user_password)
                     login.get_by_role("button", name="Sign in").click()
 
                 sign_in("browser-admin@example.test", admin_password)
                 expect(page.get_by_role("heading", name="Support overview")).to_be_visible()
+                expect(page.get_by_role("button", name="Review queue", exact=True)).to_be_visible()
+                expect(page.get_by_role("button", name="Orders", exact=True)).to_have_count(0)
                 page.get_by_role("button", name="Link customer").click()
                 page.get_by_label("Customer account ID").fill(account_id)
                 page.get_by_label("Order profile ID").fill(DEMO_PROFILE)
@@ -105,10 +116,11 @@ def verify(channel, screenshot=None):
                 expect(page.get_by_role("status")).to_have_text("Order profile linked.")
 
                 sign_in(email, password)
+                expect(page.get_by_role("button", name="Review queue", exact=True)).to_have_count(0)
                 page.get_by_role("button", name="Orders", exact=True).click()
                 expect(page.get_by_text(DEMO_ORDERS[0], exact=True)).to_be_visible()
                 page.get_by_role("button", name="View", exact=True).first.click()
-                expect(page.get_by_text("BRL 100", exact=True)).to_be_visible()
+                expect(page.get_by_text("BRL 100.00", exact=True)).to_be_visible()
                 if screenshot:
                     page.screenshot(path=screenshot)
 
@@ -122,7 +134,13 @@ def verify(channel, screenshot=None):
                 page.get_by_role("button", name="Prefer concise replies").click()
                 expect(page.get_by_text("concise", exact=True)).to_be_visible()
                 page.get_by_role("button", name="Chat", exact=True).click()
-                page.get_by_role("button", name="Open conversation").first.click()
+                page.get_by_role("button", name="New chat", exact=True).click()
+                expect(page.get_by_text("I'll remember that you prefer concise replies.", exact=True)).to_have_count(0)
+                with page.expect_response(
+                    lambda response: "/conversation/" in response.url and response.request.method == "GET"
+                ) as conversation:
+                    page.get_by_role("button", name="Open conversation").first.click()
+                assert conversation.value.status == 200
                 expect(page.get_by_text("I'll remember that you prefer concise replies.", exact=True)).to_be_visible()
                 page.evaluate("""() => {
                     window.SpeechRecognition = class {
@@ -147,6 +165,50 @@ def verify(channel, screenshot=None):
                 assert "prefer concise replies" in page.evaluate("window.testSpokenReply")
                 page.set_viewport_size({"width": 390, "height": 844})
                 assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+                page.set_viewport_size({"width": 1280, "height": 850})
+
+                page.get_by_role("button", name="New chat", exact=True).click()
+                page.get_by_label("Message", exact=True).fill(f"I want a refund for {DEMO_ORDERS[0]}.")
+                page.get_by_role("button", name="Send message").click()
+                page.get_by_role("button", name="View support case").click()
+                expect(page.get_by_role("heading", name="My support cases")).to_be_visible()
+                expect(page.get_by_role("heading", name="Case details")).to_be_visible()
+
+                sign_in("browser-admin@example.test", admin_password)
+                page.get_by_role("button", name="Review queue", exact=True).click()
+                page.get_by_role("button", name="Open case").click()
+                page.get_by_role("button", name="Read conversation").click()
+                expect(page.get_by_text(f"Customer: I want a refund for {DEMO_ORDERS[0]}.", exact=True)).to_be_visible()
+                page.get_by_role("button", name="Approve case").click()
+                expect(page.get_by_role("status")).to_have_text("Case decision recorded.")
+                page.get_by_label("Status", exact=True).select_option("APPROVED")
+                expect(page.get_by_text("Refund review", exact=True)).to_be_visible()
+
+                page.get_by_role("button", name="Return queue", exact=True).click()
+                page.get_by_role("button", name="Open return").click()
+                page.get_by_role("button", name="Approve return").click()
+                page.get_by_role("button", name="Open return").click()
+                page.get_by_role("button", name="Create refund record").click()
+                page.get_by_role("button", name="Open refund", exact=True).click()
+                page.get_by_role("button", name="Record receipt").click()
+                page.get_by_label("Inspection notes").fill("Returned item received in good condition.")
+                page.get_by_role("button", name="Save inspection").click()
+                page.get_by_label("Refund amount (BRL)").fill("20.00")
+                page.get_by_role("button", name="Approve refund").click()
+                expect(page.get_by_text("Demo payment processing is disabled for this server.")).to_be_visible()
+                page.get_by_role("button", name="Audit history", exact=True).click()
+                page.get_by_label("Action", exact=True).fill("REFUND_APPROVED")
+                page.get_by_role("button", name="Apply filters").click()
+                expect(page.get_by_text("refund approved", exact=True)).to_be_visible()
+                page.get_by_role("button", name="System activity").click()
+                expect(page.get_by_role("heading", name="Readiness")).to_be_visible()
+                expect(page.get_by_text("Orders available", exact=True)).to_be_visible()
+
+                sign_in("browser-staff@example.test", staff_password)
+                expect(page.get_by_role("heading", name="Support overview")).to_be_visible()
+                expect(page.get_by_role("button", name="Review queue", exact=True)).to_be_visible()
+                expect(page.get_by_role("button", name="Link customer")).to_have_count(0)
+                expect(page.get_by_role("button", name="System activity")).to_have_count(0)
                 assert not errors, errors
             finally:
                 browser.close()

@@ -111,7 +111,8 @@ def test_chat_uses_account_id_and_confirms_the_saved_draft(api, monkeypatch):
     conversation = draft["conversation_id"]
     assert memory.get_conversation_owner(conversation) == user_id
     assert "Reply 'confirm'" in draft["assistant_response"]
-    assert client.get(f"/conversations/{conversation}", headers=other).status_code == 404
+    assert client.get(f"/conversation/{conversation}", headers=customer).status_code == 200
+    assert client.get(f"/conversation/{conversation}", headers=other).status_code == 404
     assert return_requests.get_all_return_requests() == []
 
     monkeypatch.setattr(llm, "call_ollama", lambda *args, **kwargs: pytest.fail("Confirmation called the model"))
@@ -200,7 +201,7 @@ def test_preferences_conversations_and_policy_sources(api, monkeypatch):
 
     assert len(client.get("/customers/me/conversations", headers=customer).json()["conversations"]) == 2
     assert client.get("/customers/me/conversations", headers=other).json()["conversations"] == []
-    assert client.get(f"/conversations/{reply['conversation_id']}", headers=other).status_code == 404
+    assert client.get(f"/conversation/{reply['conversation_id']}", headers=other).status_code == 404
     assert client.get(f"/customer-memory/{reply['conversation_id']}", headers=admin).status_code == 200
     assert client.delete("/customers/me/preferences", headers=customer).status_code == 204
     assert client.get("/customers/me/preferences", headers=customer).json()["reply_style"] is None
@@ -287,7 +288,8 @@ def test_protected_cases_and_pii(api, monkeypatch):
     assert email not in result.text and card not in result.text
     case = result.json()["support_case"]
     assert case["kind"] == "ACCOUNT_CHANGE" and case["status"] == "PENDING"
-    history = client.get("/conversations/" + result.json()["conversation_id"], headers=customer)
+    history = client.get("/conversation/" + result.json()["conversation_id"], headers=customer)
+    assert history.status_code == 200
     assert email not in history.text and card not in history.text
     decision = f"/staff/support-cases/{case['case_id']}/decision"
     assert client.post(decision, headers=customer, json={"decision": "APPROVED"}).status_code == 403

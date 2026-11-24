@@ -8,17 +8,32 @@
   <script type="module" src="/dashboard-assets/dashboard.js"></script>
 </head>
 <body>
-  <div class="shell">
+  <main class="auth-screen" id="auth-screen">
+    <section class="auth-intro" aria-labelledby="auth-title">
+      <div class="brand"><span class="brand-mark" aria-hidden="true">S</span> Support Desk</div>
+      <div class="auth-message">
+        <h1 id="auth-title">Help with every order.</h1>
+        <p>Track deliveries, manage returns, and get help in one workspace.</p>
+      </div>
+      <div class="auth-art" aria-hidden="true"><span></span><span></span><span></span></div>
+    </section>
+    <section class="auth-content" aria-label="Account access">
+      <div class="auth-inner">
+        <p id="auth-notice" class="notice" role="status" hidden></p>
+        <div id="auth-panel"></div>
+      </div>
+    </section>
+  </main>
+  <div class="shell" id="workspace" hidden>
     <aside class="sidebar">
-      <a class="brand" href="/dashboard"><span class="brand-mark" aria-hidden="true">S</span> Support Desk</a>
+      <button class="brand" id="workspace-home" type="button"><span class="brand-mark" aria-hidden="true">S</span> Support Desk</button>
       <nav id="navigation" aria-label="Workspace"></nav>
       <div class="sidebar-footer">
-        <span><i aria-hidden="true"></i> Local workspace</span>
-        <a href="/docs">API reference ↗</a>
+        <a href="/docs">API reference <span aria-hidden="true">↗</span></a>
       </div>
     </aside>
-    <main>
-      <header class="topbar"><span>Workspace</span><div id="session"></div></header>
+    <main id="main-content">
+      <header class="topbar"><span id="workspace-label">Workspace</span><div id="session"></div></header>
       <section class="canvas">
         <div id="heading" class="heading"></div>
         <p id="notice" class="notice" role="status" hidden></p>
