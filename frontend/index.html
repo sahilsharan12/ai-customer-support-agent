@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Support Desk</title>
+  <link rel="stylesheet" href="/dashboard-assets/dashboard.css">
+  <script type="module" src="/dashboard-assets/dashboard.js"></script>
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="/dashboard"><span class="brand-mark" aria-hidden="true">S</span> Support Desk</a>
+      <nav id="navigation" aria-label="Workspace"></nav>
+      <div class="sidebar-footer">
+        <span><i aria-hidden="true"></i> Local workspace</span>
+        <a href="/docs">API reference ↗</a>
+      </div>
+    </aside>
+    <main>
+      <header class="topbar"><span>Workspace</span><div id="session"></div></header>
+      <section class="canvas">
+        <div id="heading" class="heading"></div>
+        <p id="notice" class="notice" role="status" hidden></p>
+        <div id="content"></div>
+      </section>
+    </main>
+  </div>
+</body>
+</html>

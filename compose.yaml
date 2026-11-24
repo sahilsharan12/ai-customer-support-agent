@@ -1,0 +1,20 @@
+services:
+  support:
+    build: .
+    env_file: .env
+    environment:
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
+      SUPPORT_DATA_DIR: /var/lib/support
+      ORDER_DB_PATH: /orders/olist.db
+      CHROMA_PERSIST_DIRECTORY: /var/lib/support/vector_store
+      DEMO_REFUNDS_ENABLED: 'false'
+    ports:
+      - '127.0.0.1:8000:8000'
+    volumes:
+      - support-data:/var/lib/support
+      - ./database:/orders:ro
+    extra_hosts:
+      - host.docker.internal:host-gateway
+
+volumes:
+  support-data:

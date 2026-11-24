@@ -1,0 +1,10 @@
+.*
+data/
+env/
+venv/
+**/__pycache__/
+**/*.db
+**/*.sqlite3
+**/*.ipynb
+**/*.py.save
+rag/vector_store/

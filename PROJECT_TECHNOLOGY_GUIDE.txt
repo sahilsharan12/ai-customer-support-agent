@@ -1,0 +1,243 @@
+AI CUSTOMER SUPPORT AGENT
+Technology guide for the Support Desk project
+==============================================
+
+1. What the project does
+------------------------
+Support Desk gives customers one place to check their orders, ask support
+questions, and request a return. It also gives staff a workspace for reviewing
+returns, recording inspections, and handling refunds.
+
+The project combines three types of work. The dashboard collects input and
+displays results. The backend verifies accounts, enforces rules, and saves
+records. The AI helps customers describe what they need in ordinary language
+and explains the results. Each part solves a different problem.
+
+
+2. Why we use an LLM
+-------------------
+An LLM, or large language model, can interpret a request and write a natural
+reply. Customers may ask the same thing in different ways, such as "Where is
+my order?" or "Has my package arrived yet?" They can also ask follow-up
+questions without repeating the entire conversation.
+
+Qwen helps turn that conversation into a useful next step. It can ask for an
+order ID, request an approved order lookup, explain the policy excerpts it
+receives, or collect the reason for a return. A customer who knows exactly
+what they need can also use the dashboard forms directly.
+
+Order status comes from SQLite. Return eligibility comes from Python rules.
+Policy answers use retrieved policy documents. When Qwen suggests a tool call,
+the backend checks the authenticated user's access and the tool's inputs.
+The server records a return after the customer confirms the saved draft.
+Staff retain responsibility for approvals, and refund processing is simulated.
+These checks matter because an LLM can generate plausible but incorrect text.
+
+If Ollama is unavailable, model-generated chat replies are unavailable.
+Customers and staff can still use the regular forms and API workflows.
+
+
+3. AI, routing, and retrieval
+-----------------------------
+Qwen3 1.7B (the chat model)
+    Interprets customer messages, decides when to request an available tool,
+    and writes replies. We chose the installed qwen3:1.7b model because it is
+    small enough for the project's laptop setup. The application also caps the
+    context length and tool rounds to control resource use.
+
+Ollama (the local model runtime)
+    Loads Qwen and serves it over a local HTTP API. The Python requests
+    library sends chat calls, applies a timeout, and handles connection
+    failures. Ollama runs the model while FastAPI runs the support app.
+
+LangGraph (the chat workflow)
+    Routes a turn through saved preferences, policy retrieval, order
+    support, general support, or return confirmation. Routes control which
+    tools the model can use. The workflow uses one shared Qwen model and can
+    confirm a prepared return directly in backend code.
+
+Tool calling (the connection between chat and business logic)
+    Exposes a small set of named operations, such as looking up an order or
+    preparing a return. A tool call gives the backend structured arguments
+    to validate. The backend uses the customer's authenticated identity to
+    verify access and returns a structured result the model can explain.
+
+Intent classification (a quick guess about the customer's goal)
+    Predicts a category such as track_order. It helps route the question and
+    gives chat a hint. It runs locally before Qwen and can report a confidence
+    score and alternative categories. The prediction is advisory and cannot
+    grant access, change a record, or approve a request.
+
+TF-IDF (how we represent text numerically)
+    Gives more weight to words or phrases that help distinguish one text
+    from another. The intent model uses these features as input. A separate
+    TF-IDF index ranks the policy sections in the default search mode.
+    Both uses are lightweight and work without a second Ollama model.
+
+Logistic regression (the intent prediction algorithm)
+    Uses the TF-IDF features to score each known intent category. It is small,
+    fast, and easy to evaluate, which makes it suitable for routing. Qwen takes
+    over when the task calls for a natural-language explanation or dialogue.
+
+scikit-learn, pandas, and joblib (the machine learning tools)
+    scikit-learn provides the vectorizer, classifier, and evaluation metrics.
+    pandas loads and prepares labelled CSV data and supports dataset
+    analysis. joblib saves and loads the trained Python model artifacts so
+    the backend can use them without training on startup.
+
+RAG (retrieval-augmented generation)
+    Finds relevant return, refund, or shipping policy sections and adds them
+    to the context for the current reply. The documents are stored as
+    Markdown. This helps the assistant ground answers in the supplied policy
+    and allows policy changes to take effect without retraining Qwen.
+    The API can return the source filenames alongside a reply.
+
+ChromaDB and nomic-embed-text (optional vector retrieval)
+    The ingestion script can split the policy documents into chunks, use
+    nomic-embed-text to create numerical representations of their meaning,
+    and store those vectors in ChromaDB. Vector retrieval compares the
+    query's embedding against the saved chunks and can help with paraphrases.
+    The default laptop setup uses the local TF-IDF index. Vector mode needs
+    the additional Ollama embedding model and an ingestion run.
+
+Conversation history and reply preferences
+    SQLite keeps the conversation messages and account-level reply style.
+    Recent turns give Qwen the context it needs to answer a follow-up.
+    An explicit request such as "Remember that I prefer concise replies"
+    saves a preference that can apply to later chats. Customers can clear it
+    from the Preferences page.
+
+
+4. Backend, data, and security
+------------------------------
+Python (the application language)
+    Runs the API routes, business rules, database queries, model integration,
+    and tests in one codebase. Its libraries cover both web development and
+    machine learning, which keeps the project simpler to run and maintain.
+
+FastAPI and Uvicorn (the API and web server)
+    FastAPI defines endpoints, applies authentication, and generates the
+    interactive Swagger documentation at /docs. Uvicorn listens for HTTP
+    requests and runs the FastAPI app. The same server delivers the browser
+    dashboard at /dashboard.
+
+Pydantic and python-multipart (request handling)
+    Pydantic checks JSON fields such as messages, return reasons, and refund
+    amounts before the endpoint processes them. python-multipart supports
+    parsing the form data used by the OAuth2 login endpoint.
+
+SQLite (the data store)
+    Stores orders, user accounts, conversations, returns, refunds, and audit
+    records. It runs in local files without a separate database server.
+    Parameterized SQL binds submitted values safely. Indexes support common
+    lookups, and transactions keep related updates consistent.
+    The project uses separate databases for orders and operational records.
+
+Olist dataset and synthetic demo orders (the order data)
+    Olist supplies realistic historical e-commerce records, including orders,
+    delivery dates, products, and payments. Synthetic sample orders use
+    recent dates so the seven-day return workflow can be demonstrated.
+    Both sources use the same backend order endpoints.
+
+JWT, python-jose, and bcrypt (authentication)
+    bcrypt hashes passwords before storage. A successful login produces
+    an expiring JSON Web Token signed and checked with python-jose.
+    Authenticated requests send the token as a Bearer token. The backend
+    reloads the user's account so that disabled users lose access.
+
+Role-based access control and ownership checks (authorization)
+    A customer can access their own orders, returns, and chats. Support
+    agents handle the staff return queue and inspections. Admins can link
+    a verified customer profile, review or process a demo refund, and view
+    audit records. The backend enforces permissions for every protected
+    action, including requests made directly through Swagger.
+
+python-dotenv, .env, and the Windows virtual environment (configuration)
+    python-dotenv loads local settings such as the Ollama model name,
+    database paths, and JWT signing secret. .env.example lists the settings
+    for a fresh setup. .env is ignored by Git. The .venv-windows environment
+    keeps project dependencies separate from other Python installations.
+
+Audit logging, rate limits, and readiness checks (operation and diagnosis)
+    Audit records show who performed return and refund actions and when.
+    SQLite triggers protect existing audit records from ordinary edits and
+    deletes. Rate limits protect login, registration, chat, and intent
+    prediction. /health checks the application database connection, while
+    /ready checks order data and the configured Ollama model. Staff can see
+    aggregate activity, and admins can view request counts and latency.
+
+
+5. The dashboard and voice controls
+-----------------------------------
+HTML, CSS, and JavaScript
+    HTML provides dashboard content and form structure. CSS controls layout,
+    appearance, and mobile sizing. JavaScript calls the API when users sign
+    in, view orders, chat, or update a request. This small dashboard runs
+    without a separate frontend framework or build process.
+
+Browser Web Speech APIs
+    Speech recognition can turn a voice message into editable text, and speech
+    synthesis can read an assistant reply aloud. The dashboard requests
+    on-device speech features. Availability depends on the browser, installed
+    language support, and local voices. The typed chat flow works independently.
+
+
+6. One end-to-end example
+-------------------------
+1. A customer signs in. FastAPI checks the bcrypt password hash and returns
+   a signed JWT.
+2. The customer asks chat to return a specific order. The intent classifier
+   supplies a hint and LangGraph selects the appropriate workflow.
+3. The backend retrieves relevant policy sections. Qwen can request the
+   return-preparation tool with the order ID and stated reason.
+4. The tool checks ownership, delivery status, the seven-day window, and
+   whether the reason requires an evidence reference. If eligible, the
+   server stores a draft and asks the customer to confirm it.
+5. When the customer confirms, the backend creates the return and writes an
+   audit event. The request appears in the staff return queue.
+6. Staff can review the return and record receipt and inspection. An admin
+   can approve a refund within the verified payment balance. In demo mode,
+   processing creates a simulated transaction record.
+
+
+7. Testing and deployment tools
+--------------------------------
+pytest, FastAPI TestClient, and HTTPX
+    Verify API responses, permissions, data changes, retry handling, and other
+    backend behavior using disposable databases. Some tests supply fixed
+    model replies to make business logic reproducible. A separate smoke test
+    uses the real local Qwen model.
+
+Playwright and Microsoft Edge
+    Exercise the dashboard from an installed browser, including login,
+    linking an order profile, viewing orders, submitting a return, and using
+    saved preferences. Browser tests check desktop and mobile layouts and
+    exercise voice controls with simulated speech.
+
+Git and GitHub Actions
+    Git is for version history. The GitHub Actions workflow defines automated
+    dependency checks, tests, JavaScript syntax checks, and a container build
+    when the repository is connected to GitHub.
+
+Docker and Docker Compose
+    The Dockerfile describes the application's container. Compose sets its
+    environment, storage, and local port. The container design keeps the
+    existing Ollama model on the host so the app can reuse it.
+
+
+8. What is verified and what remains
+-------------------------------------
+The local verification run passed 25 automated tests, the Edge dashboard
+smoke test, and a live Qwen return confirmation. The intent classifier
+achieved 98.85% accuracy and 98.74% macro F1 on 3,642 held-out examples from
+the supplied dataset. These scores measure intent classification on that
+split. Real customer messages and Qwen replies need their own evaluation.
+
+The Docker and GitHub Actions files are configured. Container execution,
+GitHub CI execution, cloud deployment, and live payments remain separate
+production steps. Chroma retrieval was checked with test embeddings.
+Live vector retrieval requires the optional embedding model, while physical
+voice input and output depend on the user's device.
+
+For setup instructions, demo account provisioning, and verification commands,
+see README.md. Open the running dashboard at http://127.0.0.1:8000/dashboard.
